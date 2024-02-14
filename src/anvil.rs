@@ -1,4 +1,3 @@
-use anyhow::Ok;
 use flate2::{
     read::{GzDecoder, ZlibDecoder},
     write::ZlibEncoder,
@@ -20,7 +19,7 @@ pub struct Anvil {
 pub struct Chunk {
     pub location: (i32, i32),
     pub timestamp: i32,
-    pub uncompressed: Vec<u8>,
+    pub uncompressed: Option<Vec<u8>>,
 }
 
 impl Display for Chunk {
@@ -46,7 +45,10 @@ impl<'a> Iterator for AnvilIter<'a> {
         if self.index == MAX_CHUNK_NUM {
             return None;
         }
-        let location = ((self.index & 0x1F) as i32, ((self.index >> 5) & 0x1F) as i32);
+        let location = (
+            (self.index & 0x1F) as i32,
+            ((self.index >> 5) & 0x1F) as i32,
+        );
         let offset = u32::from_be_bytes(
             self.anvil.inner[self.index * 4..self.index * 4 + 4]
                 .try_into()
@@ -61,6 +63,7 @@ impl<'a> Iterator for AnvilIter<'a> {
         let mut uncompressed = Vec::new();
         let start_index = offset as usize * SECTOR_SIZE;
         if start_index + SECTOR_SIZE * sector_count as usize > self.anvil.inner.len() {
+            self.index += 1;
             return Some(Err(anyhow::anyhow!("Invalid sector count")));
         }
         let chunk_len = u32::from_be_bytes(
@@ -70,11 +73,16 @@ impl<'a> Iterator for AnvilIter<'a> {
         ) as usize;
         let compression_type = self.anvil.inner[start_index + 4];
         if compression_type >= 128 {
-            return Some(Err(anyhow::anyhow!(
-                "External chunks are not yet supported"
-            )));
+            self.index += 1;
+            log::warn!("External chunks are not fully supported");
+            return Some(Ok(Chunk {
+                location,
+                timestamp,
+                uncompressed: None,
+            }));
         }
         if start_index + chunk_len + 4 > self.anvil.inner.len() {
+            self.index += 1;
             return Some(Err(anyhow::anyhow!("Invalid chunk length")));
         }
         match compression_type {
@@ -93,13 +101,30 @@ impl<'a> Iterator for AnvilIter<'a> {
                     return Some(Err(err.into()));
                 }
             }
+            3 => {
+                uncompressed.extend_from_slice(
+                    &self.anvil.inner[start_index + 5..start_index + chunk_len + 4],
+                );
+            }
+            4 => {
+                let decoder = lz4::Decoder::new(
+                    &self.anvil.inner[start_index + 5..start_index + chunk_len + 4],
+                );
+                let mut decoder = match decoder {
+                    Ok(decoder) => decoder,
+                    Err(err) => return Some(Err(err.into())),
+                };
+                if let Err(err) = decoder.read_to_end(&mut uncompressed) {
+                    return Some(Err(err.into()));
+                }
+            }
             _ => return Some(Err(anyhow::anyhow!("Unknown compression type"))),
         }
         self.index += 1;
         Some(Ok(Chunk {
             location,
             timestamp,
-            uncompressed,
+            uncompressed: Some(uncompressed),
         }))
     }
 }
@@ -143,8 +168,14 @@ impl Anvil {
     }
 
     pub fn write(&mut self, chunk: &Chunk) -> anyhow::Result<()> {
-        let (location, timestamp, uncompressed) =
-            (chunk.location, chunk.timestamp, &chunk.uncompressed);
+        let (location, timestamp, Some(uncompressed)) =
+            (chunk.location, chunk.timestamp, &chunk.uncompressed)
+        else {
+            // External chunk
+            self.inner.extend_from_slice(&[0, 0, 0, 1, 2]);
+            self.align();
+            return Ok(());
+        };
         let index = location.1 as usize * 32 + location.0 as usize;
         self.inner[index * 4 + SECTOR_SIZE..index * 4 + SECTOR_SIZE + 4]
             .copy_from_slice(&timestamp.to_be_bytes());
@@ -176,7 +207,7 @@ fn test() {
         Chunk {
             location: loc,
             timestamp: rng.gen(),
-            uncompressed,
+            uncompressed: Some(uncompressed),
         }
     };
 

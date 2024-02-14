@@ -17,7 +17,9 @@ fn remap_mca(path: &Path, cb: &impl Fn(Uuid) -> Option<Uuid>) -> anyhow::Result<
     for block in input.iter() {
         if let Err(err) = (|| -> anyhow::Result<()> {
             let mut chunk = block?;
-            visit_nbt(&mut chunk.uncompressed, cb)?;
+            if let Some(uncompressed) = &mut chunk.uncompressed {
+                visit_nbt(uncompressed, cb)?;
+            }
             output.write(&chunk)?;
             Ok(())
         })() {
