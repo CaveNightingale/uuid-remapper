@@ -31,7 +31,7 @@ pub enum MappingKind {
 
 fn load_csv(path: &Path) -> anyhow::Result<HashMap<Uuid, Uuid>> {
     let mut map = HashMap::new();
-    for line in std::fs::read_to_string(path)?.lines() {
+    for line in std::fs::read_to_string(path)?.lines().skip(1) {
         let mut iter = line.split(',');
         let Some(x) = iter.next().and_then(|x| Uuid::from_str(x).ok()) else {
             continue;
@@ -114,7 +114,6 @@ fn a_compose_b_inverse(
 fn load_name_list(path: &Path) -> anyhow::Result<Vec<String>> {
     Ok(std::fs::read_to_string(path)?
         .lines()
-        .skip(1)
         .map(|x| x.trim().to_string())
         .collect())
 }
