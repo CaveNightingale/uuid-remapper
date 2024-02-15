@@ -5,6 +5,7 @@ use std::os::unix::ffi::{OsStrExt, OsStringExt};
 #[allow(unused_imports)]
 #[cfg(target_family = "windows")]
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
+use std::str::FromStr;
 use std::{io::Read, path::Path};
 
 use std::io::Write;
@@ -93,14 +94,17 @@ pub fn remap_file(
         #[cfg(not(target_family = "windows"))]
         let mut new_path = path.into_vec();
         #[cfg(target_family = "windows")]
-        let mut newpath = if let Some(path) = path.to_str() {
+        let mut new_path = if let Some(path) = path.to_str() {
             path.as_bytes().to_vec()
         } else {
             anyhow::bail!("Illegal character in file name {}", path.to_string_lossy())
         };
 
         visit_text(&mut new_path, cb);
+        #[cfg(not(target_family = "windows"))]
         let new_concated = world.join(OsString::from_vec(new_path));
+        #[cfg(target_family = "windows")]
+        let new_concated = world.join(OsString::from_str(&String::from_utf8(new_path)?)?);
         let new_concated = Path::new(&new_concated);
         if new_concated != concated {
             std::fs::rename(&concated, new_concated)?;
