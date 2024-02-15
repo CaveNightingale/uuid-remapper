@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use crate::text::visit_text;
+
 use anyhow::Ok;
 use uuid::Uuid;
 
@@ -73,9 +75,15 @@ pub(crate) fn visit_nbt(nbt: &mut [u8], cb: &impl Fn(Uuid) -> Option<Uuid>) -> a
         () => {{
             let len = read!(u16) as usize;
             check_len!(len);
-            let ret = &nbt[cursor..cursor + len];
+            let ret = &mut nbt[cursor..cursor + len];
             cursor += len;
             ret
+        }};
+    }
+
+    macro_rules! visit_str {
+        () => {{
+            visit_text(read_str!(), cb);
         }};
     }
 
@@ -146,7 +154,7 @@ pub(crate) fn visit_nbt(nbt: &mut [u8], cb: &impl Fn(Uuid) -> Option<Uuid>) -> a
             } else if $kind == TAG_LIST {
                 visit_list!();
             } else if $kind == TAG_STRING {
-                read_str!();
+                visit_str!();
             } else {
                 anyhow::bail!("Malformed NBT: Unknown tag type {}", $kind);
             }
@@ -234,6 +242,8 @@ fn test_visit_nbt() {
     use std::collections::HashMap;
     use valence_nbt::{binary::to_binary, from_binary, snbt::from_snbt_str, Compound, Value};
 
+    // Positive test
+    // Nbt parsing test
     const FROM: Uuid = Uuid::from_u128(0x1234567890abcdef1234567890abcdef);
     const TO: Uuid = Uuid::from_u128(0xabcdef1234567890abcdef1234567890);
     let replacement = HashMap::from([(FROM, TO)]);
@@ -267,6 +277,7 @@ fn test_visit_nbt() {
         panic!("visit_nbt() claimed to be able to replace UUIDs")
     })
     .unwrap();
+    // Nbt pattern matching test
     nbtc.insert(
         "OwnerUUIDMost".to_string(),
         Value::Long((FROM.as_u128() >> 64) as u64 as i64),
@@ -276,6 +287,27 @@ fn test_visit_nbt() {
         Value::Long(FROM.as_u128() as u64 as i64),
     );
     nbtc.insert("id".to_string(), Value::IntArray(vec![1, 2, 3, 4]));
+    let uuid_to_i32_4 = |uuid: Uuid| -> [i32; 4] {
+        let u = uuid.as_u128();
+        [
+            (u >> 96) as i32,
+            (u >> 64) as i32,
+            (u >> 32) as i32,
+            u as i32,
+        ]
+    };
+    nbtc.insert(
+        "id1".to_string(),
+        Value::IntArray(uuid_to_i32_4(FROM).into()),
+    );
+    nbtc.insert(
+        "UUIDMost".to_string(),
+        Value::Long((FROM.as_u128() >> 64) as u64 as i64),
+    );
+    nbtc.insert(
+        "UUIDLeast".to_string(),
+        Value::Long(FROM.as_u128() as u64 as i64),
+    );
     let mut nbt2 = vec![];
     to_binary(&nbtc, &mut nbt2, "").unwrap();
     visit_nbt(&mut nbt2, &mut |uuid| replacement.get(&uuid).cloned()).unwrap();
@@ -288,5 +320,68 @@ fn test_visit_nbt() {
         de.get("OwnerUUIDLeast"),
         Some(&Value::Long(TO.as_u128() as u64 as i64))
     );
+    assert_eq!(
+        de.get("UUIDMost"),
+        Some(&Value::Long((TO.as_u128() >> 64) as u64 as i64))
+    );
+    assert_eq!(
+        de.get("UUIDLeast"),
+        Some(&Value::Long(TO.as_u128() as u64 as i64))
+    );
     assert_eq!(de.get("id"), Some(&Value::IntArray(vec![1, 2, 3, 4])));
+    assert_eq!(
+        de.get("id1"),
+        Some(&Value::IntArray(uuid_to_i32_4(TO).into()))
+    );
+
+    // Negative test
+    // Inconsistent string length
+    let mut nbt = vec![TAG_COMPOUND, 0, 30, 0];
+    assert!(visit_nbt(&mut nbt, &mut |_| None).is_err());
+    // Inconsistent list length
+    let mut nbt = vec![TAG_COMPOUND, 0, 0, TAG_LIST, 0, 255, 255, 255, 255];
+    assert!(visit_nbt(&mut nbt, &mut |_| None).is_err());
+    let mut nbt = vec![TAG_COMPOUND, 0, 0, TAG_LIST, 1, 255, 255, 255, 255];
+    assert!(visit_nbt(&mut nbt, &mut |_| None).is_err());
+    // Illegal tag type
+    let mut nbt = vec![TAG_COMPOUND, 0, 0, 255, 0];
+    assert!(visit_nbt(&mut nbt, &mut |_| None).is_err());
+    // Trailing data
+    let mut nbt = vec![TAG_COMPOUND, 0, 0, TAG_END, 0, 0, 0, 0];
+    assert!(visit_nbt(&mut nbt, &mut |_| None).is_err());
+    // Unpaired UUIDMost/UUIDLeast
+    let mut nbtc = Compound::<String>::new();
+    nbtc.insert(
+        "xxUUIDMost".to_string(),
+        Value::Long(FROM.as_u64_pair().0 as i64),
+    );
+    nbtc.insert(
+        "yyUUIDLeast".to_string(),
+        Value::Long(FROM.as_u64_pair().1 as i64),
+    );
+    let mut nbt = vec![];
+    to_binary(&nbtc, &mut nbt, "").unwrap();
+    assert!(visit_nbt(&mut nbt, &mut |_| None).is_ok());
+    let (de, _) = from_binary::<String>(&mut nbt.as_slice()).unwrap();
+    assert_eq!(
+        de.get("xxUUIDMost"),
+        Some(&Value::Long(FROM.as_u64_pair().0 as i64))
+    );
+    assert_eq!(
+        de.get("yyUUIDLeast"),
+        Some(&Value::Long(FROM.as_u64_pair().1 as i64))
+    ); // Should not be replaced
+    // No root tag
+    let mut nbt = vec![];
+    assert!(visit_nbt(&mut nbt, &mut |_| None).is_err());
+    // Non-long UUIDMost/UUIDLeast
+    let mut nbtc = Compound::<String>::new();
+    nbtc.insert("UUIDMost".to_string(), Value::Int(7));
+    nbtc.insert("UUIDLeast".to_string(), Value::Int(32));
+    let mut nbt = vec![];
+    to_binary(&nbtc, &mut nbt, "").unwrap();
+    assert!(visit_nbt(&mut nbt, &mut |_| None).is_ok());
+    let (de, _) = from_binary::<String>(&mut nbt.as_slice()).unwrap();
+    assert_eq!(de.get("UUIDMost"), Some(&Value::Int(7)));
+    assert_eq!(de.get("UUIDLeast"), Some(&Value::Int(32))); // Should not be replaced
 }

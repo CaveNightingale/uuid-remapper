@@ -5,43 +5,26 @@ use std::{io::Read, path::Path};
 
 use std::io::Write;
 
-use flate2::read::{GzDecoder, ZlibDecoder};
-use flate2::write::{GzEncoder, ZlibEncoder};
+use flate2::read::GzDecoder;
+use flate2::write::GzEncoder;
 use uuid::Uuid;
 
 use crate::{anvil::Anvil, nbt::visit_nbt, text::visit_text};
 
 fn remap_mca(path: &Path, cb: &impl Fn(Uuid) -> Option<Uuid>) -> anyhow::Result<()> {
     let input = Anvil::open(path)?;
-    let mut output = Anvil::new();
+    let mut output = Anvil::new(path);
     for block in input.iter() {
         if let Err(err) = (|| -> anyhow::Result<()> {
             let mut chunk = block?;
-            if let Some(uncompressed) = &mut chunk.uncompressed {
-                visit_nbt(uncompressed, cb)?;
-            }
+            visit_nbt(&mut chunk.uncompressed, cb)?;
             output.write(&chunk)?;
             Ok(())
         })() {
             log::error!("Failed to visit chunk {:#?}", err);
         }
     }
-    output.save(path)?;
-    Ok(())
-}
-
-fn remap_mcc(path: &Path, cb: &impl Fn(Uuid) -> Option<Uuid>) -> anyhow::Result<()> {
-    let mut chunk = std::fs::read(path)?;
-    log::warn!("A external chunk (outside of anvil) is found. We only support Zlib compression in this case. At {}", path.display());
-    let mut decoder = ZlibDecoder::<&[u8]>::new(&chunk);
-    let mut uncompressed = Vec::new();
-    decoder.read_to_end(&mut uncompressed)?;
-    chunk.clear();
-    visit_nbt(&mut uncompressed, cb)?;
-    let mut encoder = ZlibEncoder::new(&mut chunk, flate2::Compression::default());
-    encoder.write_all(&uncompressed)?;
-    encoder.finish()?;
-    std::fs::write(path, &chunk)?;
+    output.save()?;
     Ok(())
 }
 
@@ -78,6 +61,12 @@ fn remap_text(path: &Path, cb: &impl Fn(Uuid) -> Option<Uuid>) -> anyhow::Result
     Ok(())
 }
 
+macro_rules! text_ext {
+    () => {
+        "txt" | "json" | "json5" | "properties" | "toml" | "yml" | "yaml"
+    };
+}
+
 pub fn remap_file(
     world: &Path,
     path: &Path,
@@ -86,12 +75,11 @@ pub fn remap_file(
     let concated = world.join(path);
     if concated.is_file() {
         // Remap the file content
-        match path.extension().and_then(|s| s.to_str()) {
-            Some("mca") => remap_mca(&concated, cb)?,
-            Some("mcc") => remap_mcc(&concated, cb)?,
-            Some("dat") => remap_dat(&concated, cb)?,
-            Some("nbt") => remap_nbt(&concated, cb)?,
-            Some("txt" | "json" | "json5") => remap_text(&concated, cb)?,
+        match path.extension().and_then(|s| s.to_str()).unwrap_or("") {
+            "mca" => remap_mca(&concated, cb)?,
+            "dat" => remap_dat(&concated, cb)?,
+            "nbt" => remap_nbt(&concated, cb)?,
+            text_ext!() => remap_text(&concated, cb)?,
             _ => log::warn!("Unsupported file type: {}", concated.display()),
         }
 
@@ -123,7 +111,7 @@ pub fn remap_file(
 pub fn require_remapping(path: &Path) -> bool {
     matches!(
         path.extension().and_then(|s| s.to_str()),
-        Some("mca" | "mcc" | "dat" | "nbt" | "txt" | "json" | "json5")
+        Some("mca" | "dat" | "nbt" | text_ext!())
     ) && std::fs::metadata(path)
         .map(|m| m.is_file() && m.len() > 0 && !m.permissions().readonly())
         .unwrap_or(false)
@@ -131,6 +119,7 @@ pub fn require_remapping(path: &Path) -> bool {
 
 #[cfg(test)]
 #[test]
+#[ignore = "Require true-world test data"]
 fn test() {
     use std::{path::PathBuf, str::FromStr};
 
@@ -140,8 +129,21 @@ fn test() {
     remap_mca(&path, &|_| None).unwrap();
 
     remap_file(
-        &PathBuf::from("test/stats"),
+        &PathBuf::from("test"),
         &PathBuf::from("2d318504-1a7b-39dc-8c18-44df798a5c06.json"),
+        &|uuid| {
+            if uuid == Uuid::from_str("2d318504-1a7b-39dc-8c18-44df798a5c06").unwrap() {
+                Some(Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap())
+            } else {
+                None
+            }
+        },
+    )
+    .unwrap();
+
+    remap_file(
+        &PathBuf::from("test"),
+        &PathBuf::from("2d318504-1a7b-39dc-8c18-44df798a5c06.dat"),
         &|uuid| {
             if uuid == Uuid::from_str("2d318504-1a7b-39dc-8c18-44df798a5c06").unwrap() {
                 Some(Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap())

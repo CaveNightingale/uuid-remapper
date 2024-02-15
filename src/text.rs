@@ -44,42 +44,27 @@ pub fn visit_text(text: &mut [u8], cb: &impl Fn(Uuid) -> Option<Uuid>) {
             continue;
         }
         // DFA matching
-        matched = match matched {
-            8 => {
-                if text[i] == b'-' {
-                    9
-                } else {
-                    8
+        macro_rules! dfa_trans_table {
+            {$( $current:pat => $next:expr; $other:expr; )*} => {
+                matched = match matched {
+                    $($current => if text[i] == b'_' {
+                        $next
+                    } else {
+                        $other
+                    },)*
+                    _ => if is_digit(text[i]) {
+                        matched + 1
+                    } else {
+                        0
+                    },
                 }
             }
-            13 => {
-                if text[i] == b'-' {
-                    14
-                } else {
-                    5
-                }
-            }
-            18 => {
-                if text[i] == b'-' {
-                    19
-                } else {
-                    5
-                }
-            }
-            23 => {
-                if text[i] == b'-' {
-                    24
-                } else {
-                    5
-                }
-            }
-            _ => {
-                if is_digit(text[i]) {
-                    matched + 1
-                } else {
-                    0
-                }
-            }
+        }
+        dfa_trans_table! {
+            8 => 9; 8;
+            13 => 14; 5;
+            18 => 19; 5;
+            23 => 24; 5;
         };
         if matched == 36 {
             matched = 0;
@@ -130,22 +115,22 @@ pub fn visit_text(text: &mut [u8], cb: &impl Fn(Uuid) -> Option<Uuid>) {
 #[cfg(test)]
 #[test]
 fn test_visit_text() {
-	use std::str::FromStr;
-	let mut text = b"12345678-1234-5678-1234-567812345678".to_vec();
-	visit_text(&mut text, &mut |_| {
-		Some(Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap())
-	});
-	assert_eq!(text, b"00000000-0000-0000-0000-000000000000".to_vec());
-	let mut text = b"12345678123456781234567812345678".to_vec();
-	visit_text(&mut text, &mut |_| {
-		Some(Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap())
-	});
-	assert_eq!(text, b"00000000000000000000000000000000".to_vec());
-	let mut text = b"12345678-1234-5678-1234-5678-12345678".to_vec();
-	visit_text(&mut text, &mut |_| {
-		panic!("visit_text() claims to have found a UUID, but it shouldn't have");
-	});
-	assert_eq!(text, b"12345678-1234-5678-1234-5678-12345678".to_vec());
+    use std::str::FromStr;
+    let mut text = b"12345678-1234-5678-1234-567812345678".to_vec();
+    visit_text(&mut text, &mut |_| {
+        Some(Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap())
+    });
+    assert_eq!(text, b"00000000-0000-0000-0000-000000000000".to_vec());
+    let mut text = b"12345678123456781234567812345678".to_vec();
+    visit_text(&mut text, &mut |_| {
+        Some(Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap())
+    });
+    assert_eq!(text, b"00000000000000000000000000000000".to_vec());
+    let mut text = b"12345678-1234-5678-1234-5678-12345678".to_vec();
+    visit_text(&mut text, &mut |_| {
+        panic!("visit_text() claims to have found a UUID, but it shouldn't have");
+    });
+    assert_eq!(text, b"12345678-1234-5678-1234-5678-12345678".to_vec());
     let text = br#"{"name":"CaveNightingale", "uuid":"2d318504-1a7b-39dc-8c18-44df798a5c06"}"#;
     let mut text = text.to_vec();
     visit_text(&mut text, &mut |uuid| {

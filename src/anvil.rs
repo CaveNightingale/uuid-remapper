@@ -1,8 +1,9 @@
+use anyhow::Context;
 use flate2::{
     read::{GzDecoder, ZlibDecoder},
     write::ZlibEncoder,
 };
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::{
     fmt::Display,
     io::{Read, Write},
@@ -11,15 +12,25 @@ use std::{
 const SECTOR_SIZE: usize = 4096;
 const MAX_CHUNK_NUM: usize = 1024;
 
+const COMPRESSION_KIND_GZIP: u8 = 1;
+const COMPRESSION_KIND_ZLIB: u8 = 2;
+const COMPRESSION_KIND_RAW: u8 = 3;
+const COMPRESSION_KIND_LZ4: u8 = 4;
+const COMPRESSION_EXTERNAL: u8 = 128;
+
 pub struct Anvil {
-    inner: Vec<u8>,
+    path: PathBuf,
+    content: Vec<u8>,
 }
 
 #[derive(Debug)]
 pub struct Chunk {
+    // Whether the chunk is stored in an external file originally
+    // If so, the external chunk will be deleted when the chunk is written
+    pub external: bool,
     pub location: (i32, i32),
     pub timestamp: i32,
-    pub uncompressed: Option<Vec<u8>>,
+    pub uncompressed: Vec<u8>,
 }
 
 impl Display for Chunk {
@@ -37,9 +48,14 @@ impl<'a> Iterator for AnvilIter<'a> {
     type Item = anyhow::Result<Chunk>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while self.index < MAX_CHUNK_NUM
-            && self.anvil.inner[self.index * 4..self.index * 4 + 4] == [0; 4]
-        {
+        macro_rules! u32_at {
+            ($pos:expr) => {
+                u32::from_be_bytes(self.anvil.content[$pos..$pos + 4].try_into().unwrap())
+            };
+        }
+
+        // Read chunk metadata
+        while self.index < MAX_CHUNK_NUM && u32_at!(self.index * 4) == 0 {
             self.index += 1;
         }
         if self.index == MAX_CHUNK_NUM {
@@ -49,67 +65,63 @@ impl<'a> Iterator for AnvilIter<'a> {
             (self.index & 0x1F) as i32,
             ((self.index >> 5) & 0x1F) as i32,
         );
-        let offset = u32::from_be_bytes(
-            self.anvil.inner[self.index * 4..self.index * 4 + 4]
-                .try_into()
-                .unwrap(),
-        );
+        let offset = u32_at!(self.index * 4);
         let (offset, sector_count) = (offset >> 8, offset & 0xFF);
-        let timestamp = i32::from_be_bytes(
-            self.anvil.inner[self.index * 4 + SECTOR_SIZE..self.index * 4 + SECTOR_SIZE + 4]
-                .try_into()
-                .unwrap(),
-        );
-        let mut uncompressed = Vec::new();
-        let start_index = offset as usize * SECTOR_SIZE;
-        if start_index + SECTOR_SIZE * sector_count as usize > self.anvil.inner.len() {
+        let timestamp = u32_at!(self.index * 4 + SECTOR_SIZE) as i32;
+        let start = offset as usize * SECTOR_SIZE;
+        if start + SECTOR_SIZE * sector_count as usize > self.anvil.content.len() {
             self.index += 1;
             return Some(Err(anyhow::anyhow!("Invalid sector count")));
         }
-        let chunk_len = u32::from_be_bytes(
-            self.anvil.inner[start_index..start_index + 4]
-                .try_into()
-                .unwrap(),
-        ) as usize;
-        let compression_type = self.anvil.inner[start_index + 4];
-        if compression_type >= 128 {
-            self.index += 1;
-            log::warn!("External chunks are not fully supported");
-            return Some(Ok(Chunk {
-                location,
-                timestamp,
-                uncompressed: None,
-            }));
-        }
-        if start_index + chunk_len + 4 > self.anvil.inner.len() {
+        let chunk_len = u32_at!(start) as usize;
+        if start + chunk_len + 4 > self.anvil.content.len() {
             self.index += 1;
             return Some(Err(anyhow::anyhow!("Invalid chunk length")));
         }
+
+        // Uncompress chunk
+        let mut uncompressed = Vec::new();
+        let mut compression_type = self.anvil.content[start + 4];
+        let mut external = false;
+        let external_data;
+        let compressed = if compression_type >= COMPRESSION_EXTERNAL {
+            compression_type -= COMPRESSION_EXTERNAL;
+            let Ok(external_path) = self.anvil.external_location(location) else {
+                self.index += 1;
+                return Some(Err(anyhow::anyhow!(
+                    "Invalid global location for external chunk"
+                )));
+            };
+            external_data = match std::fs::read(external_path) {
+                Ok(data) => data,
+                Err(err) => {
+                    self.index += 1;
+                    return Some(Err(err.into()));
+                }
+            };
+            external = true;
+            &external_data
+        } else {
+            &self.anvil.content[start + 5..start + chunk_len + 4]
+        };
         match compression_type {
-            1 => {
-                let mut decoder =
-                    GzDecoder::new(&self.anvil.inner[start_index + 5..start_index + chunk_len + 4]);
+            COMPRESSION_KIND_GZIP => {
+                let mut decoder = GzDecoder::new(compressed);
                 if let Err(err) = decoder.read_to_end(&mut uncompressed) {
                     return Some(Err(err.into()));
                 }
             }
-            2 => {
-                let mut decoder = ZlibDecoder::new(
-                    &self.anvil.inner[start_index + 5..start_index + chunk_len + 4],
-                );
+            COMPRESSION_KIND_ZLIB => {
+                let mut decoder = ZlibDecoder::new(compressed);
                 if let Err(err) = decoder.read_to_end(&mut uncompressed) {
                     return Some(Err(err.into()));
                 }
             }
-            3 => {
-                uncompressed.extend_from_slice(
-                    &self.anvil.inner[start_index + 5..start_index + chunk_len + 4],
-                );
+            COMPRESSION_KIND_RAW => {
+                uncompressed.extend_from_slice(compressed);
             }
-            4 => {
-                let decoder = lz4::Decoder::new(
-                    &self.anvil.inner[start_index + 5..start_index + chunk_len + 4],
-                );
+            COMPRESSION_KIND_LZ4 => {
+                let decoder = lz4::Decoder::new(compressed);
                 let mut decoder = match decoder {
                     Ok(decoder) => decoder,
                     Err(err) => return Some(Err(err.into())),
@@ -122,14 +134,37 @@ impl<'a> Iterator for AnvilIter<'a> {
         }
         self.index += 1;
         Some(Ok(Chunk {
+            external,
             location,
             timestamp,
-            uncompressed: Some(uncompressed),
+            uncompressed,
         }))
     }
 }
 
 impl Anvil {
+    /// Get the global location of the anvil file
+    fn external_location(&self, local: (i32, i32)) -> anyhow::Result<PathBuf> {
+        let filename = self
+            .path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .context("Invalid file name")?;
+        let mut parts = filename.split('.').skip(1);
+        let x = parts
+            .next()
+            .and_then(|s| s.parse::<i64>().ok())
+            .context("Invalid x coordinate")?;
+        let z = parts
+            .next()
+            .and_then(|s| s.parse::<i64>().ok())
+            .context("Invalid z coordinate")?;
+        Ok(self
+            .path
+            .with_file_name(format!("c.{}.{}.mcc", x * 32 + local.0 as i64, z * 32 + local.1 as i64)))
+    }
+
+    /// Open an anvil file
     pub fn open(path: &Path) -> anyhow::Result<Self> {
         let mut inner = std::fs::read(path)?;
         inner.resize(
@@ -139,24 +174,29 @@ impl Anvil {
         if inner.len() < 2 * SECTOR_SIZE {
             return Err(anyhow::anyhow!("Invalid file size"));
         }
-        Ok(Self { inner })
+        Ok(Self {
+            path: path.to_path_buf(),
+            content: inner,
+        })
     }
 
-    pub fn save(&self, path: &Path) -> anyhow::Result<()> {
-        std::fs::write(path, &self.inner)?;
+    /// Save the anvil file, except for the external chunks, which is saved when the chunk is written
+    pub fn save(&self) -> anyhow::Result<()> {
+        std::fs::write(&self.path, &self.content)?;
         Ok(())
     }
 
-    pub fn new() -> Self {
+    pub fn new(path: &Path) -> Self {
         Self {
-            inner: vec![0; SECTOR_SIZE * 2],
+            path: path.to_path_buf(),
+            content: vec![0; SECTOR_SIZE * 2],
         }
     }
 
     pub fn align(&mut self) -> usize {
-        let len = self.inner.len();
+        let len = self.content.len();
         let align = (len + SECTOR_SIZE - 1) / SECTOR_SIZE * SECTOR_SIZE;
-        self.inner.resize(align, 0);
+        self.content.resize(align, 0);
         align
     }
 
@@ -168,27 +208,47 @@ impl Anvil {
     }
 
     pub fn write(&mut self, chunk: &Chunk) -> anyhow::Result<()> {
-        let (location, timestamp, Some(uncompressed)) =
-            (chunk.location, chunk.timestamp, &chunk.uncompressed)
-        else {
-            // External chunk
-            self.inner.extend_from_slice(&[0, 0, 0, 1, 2]);
-            self.align();
-            return Ok(());
-        };
+        let Chunk {
+            external,
+            location,
+            timestamp,
+            uncompressed,
+        } = chunk;
         let index = location.1 as usize * 32 + location.0 as usize;
-        self.inner[index * 4 + SECTOR_SIZE..index * 4 + SECTOR_SIZE + 4]
+        self.content[index * 4 + SECTOR_SIZE..index * 4 + SECTOR_SIZE + 4]
             .copy_from_slice(&timestamp.to_be_bytes());
-        let start = self.inner.len();
-        self.inner.extend_from_slice(&0u32.to_be_bytes());
-        self.inner.push(2);
-        let mut encoder = ZlibEncoder::new(&mut self.inner, flate2::Compression::default());
+        self.content.extend_from_slice(&0u32.to_be_bytes());
+        let start = self.content.len();
+        self.content.push(COMPRESSION_KIND_ZLIB);
+        let mut encoder = ZlibEncoder::new(&mut self.content, flate2::Compression::default());
         encoder.write_all(uncompressed)?;
         encoder.finish()?;
-        let end = self.inner.len();
-        self.inner[start..start + 4].copy_from_slice(&((end - start - 4) as u32).to_be_bytes());
-        let sector_count = (end - start + SECTOR_SIZE - 1) / SECTOR_SIZE;
-        self.inner[index * 4..index * 4 + 4].copy_from_slice(
+        let end = self.content.len();
+        let mut len = end - start;
+        let mut sector_count = len.div_ceil(SECTOR_SIZE);
+        // Unlikely: If the chunk is too large, we need to move it to external file
+        if sector_count > u8::MAX as usize {
+            let external_path = self.external_location(*location)?;
+            log::info!(
+                "Chunk is too large, moved to external file {}",
+                external_path.display()
+            );
+            std::fs::write(&external_path, &self.content[start + 1..end])?;
+            self.content.truncate(start);
+            self.content
+                .push(COMPRESSION_EXTERNAL + COMPRESSION_KIND_ZLIB);
+            sector_count = 1;
+            len = 1;
+        } else if *external {
+            let external_path = self.external_location(*location)?;
+            log::info!(
+                "Chunk is previously in external file {}, but now moved to internal",
+                external_path.display()
+            );
+            std::fs::remove_file(&external_path)?;
+        };
+        self.content[start - 4..start].copy_from_slice(&(len as u32).to_be_bytes());
+        self.content[index * 4..index * 4 + 4].copy_from_slice(
             &((((start / SECTOR_SIZE) as u32) << 8) | sector_count as u32).to_be_bytes(),
         );
         self.align();
@@ -205,13 +265,14 @@ fn test() {
         let mut uncompressed = vec![0; 1024];
         rng.fill(&mut uncompressed[..]);
         Chunk {
+            external: false,
             location: loc,
             timestamp: rng.gen(),
-            uncompressed: Some(uncompressed),
+            uncompressed: uncompressed,
         }
     };
 
-    let mut anvil = Anvil::new();
+    let mut anvil = Anvil::new(Path::new("r.0.0.mca"));
     let chunk1 = rand_chunk(&mut rand::thread_rng(), (0, 0));
     let chunk2 = rand_chunk(&mut rand::thread_rng(), (20, 20));
     anvil.write(&chunk1).unwrap();
@@ -222,7 +283,49 @@ fn test() {
     assert_eq!(chunk1.location, chunk1_read.location);
     assert_eq!(chunk1.timestamp, chunk1_read.timestamp);
     assert_eq!(chunk1.uncompressed, chunk1_read.uncompressed);
+    assert_eq!(false, chunk1_read.external);
     assert_eq!(chunk2.location, chunk2_read.location);
     assert_eq!(chunk2.timestamp, chunk2_read.timestamp);
     assert_eq!(chunk2.uncompressed, chunk2_read.uncompressed);
+    assert_eq!(false, chunk2_read.external);
+
+    let rand_large_chunk = |rng: &mut rand::rngs::ThreadRng, loc: (i32, i32)| -> Chunk {
+        let mut uncompressed = vec![0; 8 * 1024 * 1024];
+        rng.fill(&mut uncompressed[..]);
+        Chunk {
+            external: false,
+            location: loc,
+            timestamp: rng.gen(),
+            uncompressed: uncompressed,
+        }
+    };
+    let mut anvil = Anvil::new(Path::new("r.-1.-1.mca"));
+    let chunk = rand_large_chunk(&mut rand::thread_rng(), (0, 0));
+    anvil.write(&chunk).unwrap();
+    assert!(Path::new("c.-32.-32.mcc").exists()); // External file
+    let mut iter = anvil.iter();
+    let chunk_read = iter.next().unwrap().unwrap();
+    assert_eq!(chunk.location, chunk_read.location);
+    assert_eq!(chunk.timestamp, chunk_read.timestamp);
+    assert_eq!(chunk.uncompressed, chunk_read.uncompressed);
+    assert_eq!(true, chunk_read.external);
+    anvil.save().unwrap();
+    anvil = Anvil::open(Path::new("r.-1.-1.mca")).unwrap();
+    let mut iter = anvil.iter();
+    let chunk_read = iter.next().unwrap().unwrap();
+    assert_eq!(chunk.location, chunk_read.location);
+    assert_eq!(chunk.timestamp, chunk_read.timestamp);
+    assert_eq!(chunk.uncompressed, chunk_read.uncompressed);
+    assert_eq!(true, chunk_read.external);
+    anvil.write(&Chunk {
+        external: true,
+        location: (0, 0),
+        timestamp: 0,
+        uncompressed: vec![0; 1024],
+    }).unwrap();
+    assert!(!Path::new("c.-32.-32.mcc").exists());
+
+    // TODO: Poor test coverage
+
+    std::fs::remove_file("r.-1.-1.mca").unwrap();
 }

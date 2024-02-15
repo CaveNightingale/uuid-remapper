@@ -8,7 +8,7 @@ use std::{
 use indicatif::ProgressBar;
 use uuid::Uuid;
 
-use crate::remapper::{remap_file, require_remapping};
+use crate::remap::{remap_file, require_remapping};
 
 pub fn run_tasks(
     world: PathBuf,
@@ -88,4 +88,35 @@ pub fn split_tasks(tasks: &[PathBuf], count: usize) -> Vec<&[PathBuf]> {
         start += len;
     }
     ret
+}
+
+#[cfg(test)]
+#[test]
+fn test() {
+    let tasks = vec![
+        PathBuf::from("a"),
+        PathBuf::from("b"),
+        PathBuf::from("c"),
+        PathBuf::from("d"),
+        PathBuf::from("e"),
+        PathBuf::from("f"),
+        PathBuf::from("g"),
+        PathBuf::from("h"),
+        PathBuf::from("i"),
+        PathBuf::from("j"),
+    ];
+    assert_eq!(
+        split_tasks(&tasks, 3)
+            .iter()
+            .map(|x| x.len())
+            .collect::<Vec<_>>(),
+        vec![4, 3, 3]
+    );
+    assert_eq!(
+        split_tasks(&tasks, 4)
+            .iter()
+            .map(|x| x.len())
+            .collect::<Vec<_>>(),
+        vec![3, 3, 2, 2]
+    );
 }

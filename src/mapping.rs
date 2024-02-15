@@ -190,13 +190,80 @@ pub fn get_mapping(kind: MappingKind, path: &Path) -> anyhow::Result<HashMap<Uui
 
 #[cfg(test)]
 #[test]
-fn test_api() {
-    println!(
-        "{:?}",
-        get_mapping(
-            MappingKind::UsercacheToOnline,
-            Path::new("test/usercache.json")
-        )
-        .unwrap()
+fn test() {
+    let csv_file = "from,to\n\
+    00000000-0000-0000-0000-000000000000,00000000-0000-0000-0000-000000000001\n\
+    00000000-0000-0000-0000-000000000002,00000000-0000-0000-0000-000000000003";
+    let csv_path = std::env::temp_dir().join("test.csv");
+    std::fs::write(&csv_path, csv_file).unwrap();
+    assert_eq!(
+        get_mapping(MappingKind::Csv, &csv_path).unwrap(),
+        vec![
+            (Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap(), Uuid::from_str("00000000-0000-0000-0000-000000000001").unwrap()),
+            (Uuid::from_str("00000000-0000-0000-0000-000000000002").unwrap(), Uuid::from_str("00000000-0000-0000-0000-000000000003").unwrap()),
+        ]
+        .into_iter()
+        .collect()
     );
+    std::fs::remove_file(csv_path).unwrap();
+
+    let json_file = r#"{
+        "00000000-0000-0000-0000-000000000000": "00000000-0000-0000-0000-000000000001",
+        "00000000-0000-0000-0000-000000000002": "00000000-0000-0000-0000-000000000003"
+    }"#;
+    let json_path = std::env::temp_dir().join("test.json");
+    std::fs::write(&json_path, json_file).unwrap();
+    assert_eq!(
+        get_mapping(MappingKind::Json, &json_path).unwrap(),
+        vec![
+            (Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap(), Uuid::from_str("00000000-0000-0000-0000-000000000001").unwrap()),
+            (Uuid::from_str("00000000-0000-0000-0000-000000000002").unwrap(), Uuid::from_str("00000000-0000-0000-0000-000000000003").unwrap()),
+        ]
+        .into_iter()
+        .collect()
+    );
+    std::fs::remove_file(json_path).unwrap();
+
+    let list_file = "a\nb\nc";
+    let list_path = std::env::temp_dir().join("test.list");
+    std::fs::write(&list_path, list_file).unwrap();
+    assert_eq!(
+        load_name_list(&list_path).unwrap(),
+        vec![
+            "a".to_string(),
+            "b".to_string(),
+            "c".to_string(),
+        ]
+    );
+    std::fs::remove_file(list_path).unwrap();
+
+    let usercache_file = r#"[{"name":"a"},{"name":"b"},{"name":"c"}]"#;
+    let usercache_path = std::env::temp_dir().join("test.usercache.json");
+    std::fs::write(&usercache_path, usercache_file).unwrap();
+    assert_eq!(
+        load_name_list_from_usercache(&usercache_path).unwrap(),
+        vec![
+            "a".to_string(),
+            "b".to_string(),
+            "c".to_string(),
+        ]
+    );
+    std::fs::remove_file(usercache_path).unwrap();
+
+    let offline_rename_file = "from,to\na,b\nc,d";
+    let offline_rename_path = std::env::temp_dir().join("test.offline_rename.csv");
+    std::fs::write(&offline_rename_path, offline_rename_file).unwrap();
+    assert_eq!(
+        load_offline_rename(&offline_rename_path).unwrap(),
+        vec![
+            (offline_uuid("a"), offline_uuid("b")),
+            (offline_uuid("c"), offline_uuid("d")),
+        ]
+        .into_iter()
+        .collect()
+    );
+    std::fs::remove_file(offline_rename_path).unwrap();
+
+    assert_eq!(offline_uuid("CaveNightingale"), Uuid::from_str("2d318504-1a7b-39dc-8c18-44df798a5c06").unwrap());
+    // Online UUIDs are not tested because it requires network access
 }
