@@ -159,9 +159,11 @@ impl Anvil {
             .next()
             .and_then(|s| s.parse::<i64>().ok())
             .context("Invalid z coordinate")?;
-        Ok(self
-            .path
-            .with_file_name(format!("c.{}.{}.mcc", x * 32 + local.0 as i64, z * 32 + local.1 as i64)))
+        Ok(self.path.with_file_name(format!(
+            "c.{}.{}.mcc",
+            x * 32 + local.0 as i64,
+            z * 32 + local.1 as i64
+        )))
     }
 
     /// Open an anvil file
@@ -317,12 +319,14 @@ fn test() {
     assert_eq!(chunk.timestamp, chunk_read.timestamp);
     assert_eq!(chunk.uncompressed, chunk_read.uncompressed);
     assert_eq!(true, chunk_read.external);
-    anvil.write(&Chunk {
-        external: true,
-        location: (0, 0),
-        timestamp: 0,
-        uncompressed: vec![0; 1024],
-    }).unwrap();
+    anvil
+        .write(&Chunk {
+            external: true,
+            location: (0, 0),
+            timestamp: 0,
+            uncompressed: vec![0; 1024],
+        })
+        .unwrap();
     assert!(!Path::new("c.-32.-32.mcc").exists());
 
     // TODO: Poor test coverage

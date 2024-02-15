@@ -151,5 +151,6 @@ fn test() {
                 None
             }
         },
-    ).unwrap();
+    )
+    .unwrap();
 }

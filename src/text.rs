@@ -47,7 +47,7 @@ pub fn visit_text(text: &mut [u8], cb: &impl Fn(Uuid) -> Option<Uuid>) {
         macro_rules! dfa_trans_table {
             {$( $current:pat => $next:expr; $other:expr; )*} => {
                 matched = match matched {
-                    $($current => if text[i] == b'_' {
+                    $($current => if text[i] == b'-' {
                         $next
                     } else {
                         $other

@@ -1,0 +1,109 @@
+name: Rust
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+    - name: Set up Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        override: true
+    - name: Run tests
+      uses: actions-rs/cargo@v1
+      with:
+        command: test
+      env:
+        CARGO_INCREMENTAL: '0'
+        RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
+        RUSTDOCFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
+    - name: Run grcov
+      id: coverage
+      uses: actions-rs/grcov@v0.1
+    - name: Coveralls upload
+      uses: coverallsapp/github-action@master
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        path-to-lcov: ${{ steps.coverage.outputs.report }}
+    - name: Run clippy
+      uses: actions-rs/cargo@v1
+      with:
+        command: clippy
+        args: --verbose
+    - name: Run formatting
+      uses: actions-rs/cargo@v1
+      with:
+        command: fmt
+        args: --check
+    - name: Build release
+      uses: actions-rs/cargo@v1
+      with:
+        command: build
+        args: --release
+    - name: Upload artifact
+      uses: actions/upload-artifact@v2
+      with:
+        name: uuid-remapper-x86_64-linux
+        path: target/release/uuid-remapper
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          override: true
+      - name: Test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+      - name: Build
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release
+      - name: Upload artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: uuid-remapper-x86_64-windows.exe
+          path: target/release/uuid-remapper.exe
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          override: true
+      - name: Test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+      - name: Build
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release
+      - name: Upload artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: uuid-remapper-x86_64-macos
+          path: target/release/uuid-remapper

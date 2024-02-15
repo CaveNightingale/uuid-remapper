@@ -371,7 +371,7 @@ fn test_visit_nbt() {
         de.get("yyUUIDLeast"),
         Some(&Value::Long(FROM.as_u64_pair().1 as i64))
     ); // Should not be replaced
-    // No root tag
+       // No root tag
     let mut nbt = vec![];
     assert!(visit_nbt(&mut nbt, &mut |_| None).is_err());
     // Non-long UUIDMost/UUIDLeast

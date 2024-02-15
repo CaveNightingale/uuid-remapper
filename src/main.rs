@@ -46,11 +46,15 @@ fn main() {
         .unwrap();
 
     if std::mem::size_of::<usize>() < 8 {
-        log::error!("usize is less than 64-bit, you may encounter integer overflow when \
-        dealing with some malformed NBT");
+        log::error!(
+            "usize is less than 64-bit, you may encounter integer overflow when \
+        dealing with some malformed NBT"
+        );
         log::error!("Do not report this issue to the author, as it is not worth fixing");
-        log::error!("Since Minecraft almost can't run on 32-bit devices, \
-        running this program, which is designed to work with Minecraft, is meaningless");
+        log::error!(
+            "Since Minecraft almost can't run on 32-bit devices, \
+        running this program, which is designed to work with Minecraft, is meaningless"
+        );
     }
 
     let path = cli.path;
