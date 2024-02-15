@@ -21,6 +21,7 @@ jobs:
       with:
         toolchain: nightly
         override: true
+        components: rustfmt, clippy
     - name: Run tests
       uses: actions-rs/cargo@v1
       with:

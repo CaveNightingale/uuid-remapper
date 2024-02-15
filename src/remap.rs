@@ -1,6 +1,10 @@
 use std::ffi::OsString;
 #[allow(unused_imports)]
+#[cfg(not(target_family = "windows"))]
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
+#[allow(unused_imports)]
+#[cfg(target_family = "windows")]
+use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::{io::Read, path::Path};
 
 use std::io::Write;
