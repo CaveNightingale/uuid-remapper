@@ -5,6 +5,7 @@ use std::os::unix::ffi::{OsStrExt, OsStringExt};
 #[allow(unused_imports)]
 #[cfg(target_family = "windows")]
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
+#[cfg(target_family = "windows")]
 use std::str::FromStr;
 use std::{io::Read, path::Path};
 
@@ -52,13 +53,6 @@ fn remap_dat(path: &Path, cb: &impl Fn(Uuid) -> Option<Uuid>) -> anyhow::Result<
     Ok(())
 }
 
-fn remap_nbt(path: &Path, cb: &impl Fn(Uuid) -> Option<Uuid>) -> anyhow::Result<()> {
-    let mut chunk = std::fs::read(path)?;
-    visit_nbt(&mut chunk, cb)?;
-    std::fs::write(path, &chunk)?;
-    Ok(())
-}
-
 fn remap_text(path: &Path, cb: &impl Fn(Uuid) -> Option<Uuid>) -> anyhow::Result<()> {
     let mut text = std::fs::read(path)?;
     visit_text(&mut text, cb);
@@ -82,8 +76,7 @@ pub fn remap_file(
         // Remap the file content
         match path.extension().and_then(|s| s.to_str()).unwrap_or("") {
             "mca" => remap_mca(&concated, cb)?,
-            "dat" => remap_dat(&concated, cb)?,
-            "nbt" => remap_nbt(&concated, cb)?,
+            "dat" | "nbt" => remap_dat(&concated, cb)?,
             text_ext!() => remap_text(&concated, cb)?,
             _ => log::warn!("Unsupported file type: {}", concated.display()),
         }

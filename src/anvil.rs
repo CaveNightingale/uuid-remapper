@@ -227,7 +227,7 @@ impl Anvil {
         encoder.finish()?;
         let end = self.content.len();
         let mut len = end - start;
-        let mut sector_count = len.div_ceil(SECTOR_SIZE);
+        let mut sector_count = (len + 4).div_ceil(SECTOR_SIZE);
         // Unlikely: If the chunk is too large, we need to move it to external file
         if sector_count > u8::MAX as usize {
             let external_path = self.external_location(*location)?;
@@ -263,8 +263,8 @@ impl Anvil {
 fn test() {
     use rand::Rng;
 
-    let rand_chunk = |rng: &mut rand::rngs::ThreadRng, loc: (i32, i32)| -> Chunk {
-        let mut uncompressed = vec![0; 1024];
+    let rand_chunk = |rng: &mut rand::rngs::ThreadRng, loc: (i32, i32), size: usize| -> Chunk {
+        let mut uncompressed = vec![0; size];
         rng.fill(&mut uncompressed[..]);
         Chunk {
             external: false,
@@ -275,8 +275,8 @@ fn test() {
     };
 
     let mut anvil = Anvil::new(Path::new("r.0.0.mca"));
-    let chunk1 = rand_chunk(&mut rand::thread_rng(), (0, 0));
-    let chunk2 = rand_chunk(&mut rand::thread_rng(), (20, 20));
+    let chunk1 = rand_chunk(&mut rand::thread_rng(), (0, 0), 1024);
+    let chunk2 = rand_chunk(&mut rand::thread_rng(), (20, 20), 3424);
     anvil.write(&chunk1).unwrap();
     anvil.write(&chunk2).unwrap();
     let mut iter = anvil.iter();
@@ -291,19 +291,11 @@ fn test() {
     assert_eq!(chunk2.uncompressed, chunk2_read.uncompressed);
     assert_eq!(false, chunk2_read.external);
 
-    let rand_large_chunk = |rng: &mut rand::rngs::ThreadRng, loc: (i32, i32)| -> Chunk {
-        let mut uncompressed = vec![0; 8 * 1024 * 1024];
-        rng.fill(&mut uncompressed[..]);
-        Chunk {
-            external: false,
-            location: loc,
-            timestamp: rng.gen(),
-            uncompressed: uncompressed,
-        }
-    };
     let mut anvil = Anvil::new(Path::new("r.-1.-1.mca"));
-    let chunk = rand_large_chunk(&mut rand::thread_rng(), (0, 0));
+    let chunk = rand_chunk(&mut rand::thread_rng(), (0, 0), 8 * 1024 * 1024); // Large chunk
     anvil.write(&chunk).unwrap();
+    let chunk1 = rand_chunk(&mut rand::thread_rng(), (22, 22), SECTOR_SIZE * 255 - 100); // Near the edge (above)
+    anvil.write(&chunk1).unwrap();
     assert!(Path::new("c.-32.-32.mcc").exists()); // External file
     let mut iter = anvil.iter();
     let chunk_read = iter.next().unwrap().unwrap();
@@ -311,6 +303,11 @@ fn test() {
     assert_eq!(chunk.timestamp, chunk_read.timestamp);
     assert_eq!(chunk.uncompressed, chunk_read.uncompressed);
     assert_eq!(true, chunk_read.external);
+    let chunk1_read = iter.next().unwrap().unwrap();
+    assert_eq!(chunk1.location, chunk1_read.location);
+    assert_eq!(chunk1.timestamp, chunk1_read.timestamp);
+    assert_eq!(chunk1.uncompressed, chunk1_read.uncompressed);
+    assert_eq!(true, chunk1_read.external);
     anvil.save().unwrap();
     anvil = Anvil::open(Path::new("r.-1.-1.mca")).unwrap();
     let mut iter = anvil.iter();
@@ -325,6 +322,14 @@ fn test() {
             location: (0, 0),
             timestamp: 0,
             uncompressed: vec![0; 1024],
+        })
+        .unwrap();
+    anvil
+        .write(&Chunk {
+            external: true,
+            location: (22, 22),
+            timestamp: 0,
+            uncompressed: vec![0; 4524],
         })
         .unwrap();
     assert!(!Path::new("c.-32.-32.mcc").exists());

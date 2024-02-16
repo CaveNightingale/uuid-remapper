@@ -25,3 +25,4 @@ uuid = { version = "1.7.0", features = ["md5", "serde", "v3"] }
 
 [dev-dependencies]
 valence_nbt = { git = "https://github.com/valence-rs/valence.git", rev="a36d247", features = [ "serde", "binary", "snbt" ]}
+zip = "0.6.6"

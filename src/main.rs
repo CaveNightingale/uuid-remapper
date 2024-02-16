@@ -36,15 +36,7 @@ struct Cli {
     no: bool,
 }
 
-fn main() {
-    let cli = Cli::parse();
-
-    let logger =
-        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).build();
-    LogWrapper::new((*MULTI).clone(), logger)
-        .try_init()
-        .unwrap();
-
+fn start(cli: Cli) {
     if std::mem::size_of::<usize>() < 8 {
         log::error!(
             "usize is less than 64-bit, you may encounter integer overflow when \
@@ -140,4 +132,76 @@ fn main() {
         stat,
         "uuid fields are modified".green().bold()
     );
+}
+
+fn main() {
+    let logger =
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).build();
+    LogWrapper::new((*MULTI).clone(), logger)
+        .try_init()
+        .unwrap();
+
+    let cli = Cli::parse();
+    start(cli);
+}
+
+#[cfg(test)]
+#[test]
+fn test() {
+    let logger =
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).build();
+    LogWrapper::new((*MULTI).clone(), logger)
+        .try_init()
+        .unwrap();
+
+    // Download a world on the internet for testing, if you don't have an own testing world
+    // Otherwise, use your own world for testing, which is more reliable
+    let path = PathBuf::from("test");
+    if !path.exists() {
+        std::fs::create_dir(&path).unwrap();
+        let testing_world_url = "https://www.minecraftmaps.com/puzzle-maps/cubes/download-map";
+        let testing_world_zip = "cubes.zip";
+        reqwest::blocking::Client::new()
+            .get(testing_world_url)
+            .send()
+            .unwrap()
+            .copy_to(&mut std::fs::File::create(&testing_world_zip).unwrap())
+            .unwrap();
+        let mut archive =
+            zip::ZipArchive::new(std::fs::File::open(&testing_world_zip).unwrap()).unwrap();
+        for i in 0..archive.len() {
+            let mut file = archive.by_index(i).unwrap();
+            let outpath = path.join(file.mangled_name());
+            if file.is_dir() {
+                std::fs::create_dir_all(&outpath).unwrap();
+            } else {
+                if let Some(p) = outpath.parent() {
+                    std::fs::create_dir_all(p).unwrap();
+                }
+                let mut outfile = std::fs::File::create(&outpath).unwrap();
+                std::io::copy(&mut file, &mut outfile).unwrap();
+            }
+        }
+        std::fs::remove_file(testing_world_zip).unwrap();
+    }
+    let player_list = "NotLaama\nCaveNightingale\n";
+    std::fs::write(path.join("playerlist.txt"), player_list).unwrap();
+    // Map to online
+    start(Cli {
+        path: path.clone(),
+        mapping_kind: MappingKind::ListToOnline,
+        mapping_file: PathBuf::from("test/playerlist.txt"),
+        threads: 4,
+        yes: true,
+        no: false,
+    });
+    // Map back to offline
+    start(Cli {
+        path,
+        mapping_kind: MappingKind::ListToOffline,
+        mapping_file: PathBuf::from("test/playerlist.txt"),
+        threads: 4,
+        yes: true,
+        no: false,
+    });
 }

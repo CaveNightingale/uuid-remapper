@@ -93,6 +93,8 @@ pub fn split_tasks(tasks: &[PathBuf], count: usize) -> Vec<&[PathBuf]> {
 #[cfg(test)]
 #[test]
 fn test() {
+    use std::collections::HashSet;
+
     let tasks = vec![
         PathBuf::from("a"),
         PathBuf::from("b"),
@@ -119,4 +121,71 @@ fn test() {
             .collect::<Vec<_>>(),
         vec![3, 3, 2, 2]
     );
+
+    let pesudo_content = b"Hello, world!";
+    // Test scan_world
+    // Randomly create a directory structure and files
+    let temp_dir = std::env::temp_dir().join("test_scan_world");
+    std::fs::create_dir_all(&temp_dir).unwrap();
+    let config = temp_dir.join("config");
+    std::fs::create_dir_all(&config).unwrap();
+    let world = temp_dir.join("world");
+    std::fs::create_dir_all(&world).unwrap();
+    let region = world.join("region");
+    std::fs::create_dir_all(&region).unwrap();
+    let r = region.join("r.1.1.mca");
+    std::fs::write(&r, &pesudo_content).unwrap();
+    let r = region.join("r.1.2.mca");
+    std::fs::write(&r, &pesudo_content).unwrap();
+    let r = world.join("level.dat");
+    std::fs::write(&r, &pesudo_content).unwrap();
+    let r = world.join("playerdata");
+    std::fs::create_dir_all(&r).unwrap();
+    let r = r.join("player1.dat");
+    std::fs::write(&r, &pesudo_content).unwrap();
+    let r = world.join("stats");
+    std::fs::create_dir_all(&r).unwrap();
+    let r = r.join("player1.json");
+    std::fs::write(&r, &pesudo_content).unwrap();
+    let r = config.join("config.toml");
+    std::fs::write(&r, &pesudo_content).unwrap();
+    let r = config.join("config.json");
+    std::fs::write(&r, &pesudo_content).unwrap();
+    let r = config.join("config.json5");
+    std::fs::write(&r, &pesudo_content).unwrap();
+    let r = config.join("config.properties");
+    std::fs::write(&r, &pesudo_content).unwrap();
+    let r = config.join("config.yml");
+    std::fs::write(&r, &pesudo_content).unwrap();
+    let r = config.join("config.yaml");
+    std::fs::write(&r, &pesudo_content).unwrap();
+    let r = config.join("config.txt");
+    std::fs::write(&r, &pesudo_content).unwrap();
+    let r = config.join("config.nbt");
+    std::fs::write(&r, &pesudo_content).unwrap();
+    let tasks = scan_world(&temp_dir).unwrap();
+    assert_eq!(
+        tasks
+            .iter()
+            .map(|x| x.to_str().unwrap())
+            .collect::<HashSet<_>>(),
+        vec![
+            "world/region/r.1.1.mca",
+            "world/region/r.1.2.mca",
+            "world/level.dat",
+            "world/playerdata/player1.dat",
+            "world/stats/player1.json",
+            "config/config.toml",
+            "config/config.json",
+            "config/config.json5",
+            "config/config.properties",
+            "config/config.yml",
+            "config/config.yaml",
+            "config/config.txt",
+            "config/config.nbt",
+        ]
+        .into_iter()
+        .collect::<HashSet<_>>()
+    );
+    std::fs::remove_dir_all(&temp_dir).unwrap();
 }

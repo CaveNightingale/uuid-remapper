@@ -1,4 +1,5 @@
 # UUID Remapper
+[![Coverage Status](https://coveralls.io/repos/github/CaveNightingale/uuid-remapper/badge.svg?branch=master)](https://coveralls.io/github/CaveNightingale/uuid-remapper?branch=master)
 
 This is a simple tool to remap UUIDs in minecraft worlds. 
 
@@ -9,8 +10,6 @@ It follows heuristics to find UUIDs in the world files and remap them to new one
 ```sh
 cargo install --path .
 ```
-
-**Do not run the tests**. It requires files from real-world minecraft worlds sampled from real servers, and they are not included in the repository for privacy reasons. Unless you fill in the missing files, the tests will fail. To find out how to run the tests, see the source code.
 
 ## Usage
 

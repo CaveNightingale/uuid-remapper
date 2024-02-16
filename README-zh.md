@@ -1,4 +1,5 @@
 # UUID Remapper
+[![Coverage Status](https://coveralls.io/repos/github/CaveNightingale/uuid-remapper/badge.svg?branch=master)](https://coveralls.io/github/CaveNightingale/uuid-remapper?branch=master)
 
 这是一个简单的工具，用于重映射 Minecraft 世界中的 UUID。
 
@@ -9,8 +10,6 @@
 ```sh
 cargo install --path .
 ```
-
-**不要运行测试**。它需要来自真实服务器的真实世界 Minecraft 世界文件，由于隐私原因，它们不包含在仓库中。除非你填补缺失的文件，否则测试将失败。要了解如何运行测试，请查看源代码。
 
 ## 用法
 

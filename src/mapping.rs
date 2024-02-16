@@ -258,7 +258,7 @@ fn test() {
     let offline_rename_path = std::env::temp_dir().join("test.offline_rename.csv");
     std::fs::write(&offline_rename_path, offline_rename_file).unwrap();
     assert_eq!(
-        load_offline_rename(&offline_rename_path).unwrap(),
+        get_mapping(MappingKind::OfflineRenameCsv, &offline_rename_path).unwrap(),
         vec![
             (offline_uuid("a"), offline_uuid("b")),
             (offline_uuid("c"), offline_uuid("d")),
@@ -272,5 +272,47 @@ fn test() {
         offline_uuid("CaveNightingale"),
         Uuid::from_str("2d318504-1a7b-39dc-8c18-44df798a5c06").unwrap()
     );
-    // Online UUIDs are not tested because it requires network access
+    let online_uuids_result = online_uuids(
+        vec![
+            "CaveNightingale".to_string(),
+            "Notch".to_string(),
+            "Dinnerbone".to_string(),
+        ]
+        .iter(),
+    );
+    assert_eq!(
+        online_uuids_result.get("CaveNightingale").unwrap(),
+        &Uuid::from_str("fb1ad51e-cf1f-41f7-8fd1-10dff164b17d").unwrap()
+    );
+    assert_eq!(
+        online_uuids_result.get("Notch").unwrap(),
+        &Uuid::from_str("069a79f4-44e9-4726-a5be-fca90e38aaf5").unwrap()
+    );
+    assert_eq!(
+        online_uuids_result.get("Dinnerbone").unwrap(),
+        &Uuid::from_str("61699b2e-d327-4a01-9f1e-0ea8c3f06bc6").unwrap()
+    );
+    let composed = a_compose_b_inverse(
+        &online_uuids_result,
+        &offline_uuids(
+            vec![
+                "CaveNightingale".to_string(),
+                "Notch".to_string(),
+                "Dinnerbone".to_string(),
+            ]
+            .iter(),
+        ),
+    );
+    assert_eq!(
+        composed.get(&Uuid::from_str("fb1ad51e-cf1f-41f7-8fd1-10dff164b17d").unwrap()),
+        Some(&offline_uuid("CaveNightingale"))
+    );
+    assert_eq!(
+        composed.get(&Uuid::from_str("069a79f4-44e9-4726-a5be-fca90e38aaf5").unwrap()),
+        Some(&offline_uuid("Notch"))
+    );
+    assert_eq!(
+        composed.get(&Uuid::from_str("61699b2e-d327-4a01-9f1e-0ea8c3f06bc6").unwrap()),
+        Some(&offline_uuid("Dinnerbone"))
+    );
 }

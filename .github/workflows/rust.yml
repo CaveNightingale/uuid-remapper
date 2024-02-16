@@ -26,6 +26,7 @@ jobs:
       uses: actions-rs/cargo@v1
       with:
         command: test
+        args: --no-fail-fast -- --nocapture
       env:
         CARGO_INCREMENTAL: '0'
         RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
@@ -60,6 +61,7 @@ jobs:
         path: target/release/uuid-remapper
 
   windows:
+    name: Windows
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -85,6 +87,7 @@ jobs:
           path: target/release/uuid-remapper.exe
 
   macos:
+    name: macOS
     runs-on: macos-latest
     steps:
       - name: Checkout
