@@ -120,17 +120,62 @@ pub fn require_remapping(path: &Path) -> bool {
 
 #[cfg(test)]
 #[test]
-#[ignore = "Require true-world test data"]
 fn test() {
     use std::{path::PathBuf, str::FromStr};
 
-    env_logger::init();
+    use valence_nbt::{to_binary, Compound, Value};
 
-    let path = PathBuf::from("test.mca");
+    use crate::anvil::Chunk;
+
+    use crate::setup_test_logger;
+
+    setup_test_logger();
+
+    let temp = std::env::temp_dir();
+    let test = temp.join("test_remap");
+    std::fs::create_dir_all(&test).unwrap();
+
+    let content = Compound::<String>::from_iter(
+        vec![(
+            "uuid".to_string(),
+            Value::String("2d318504-1a7b-39dc-8c18-44df798a5c06".to_string()),
+        )]
+        .into_iter(),
+    );
+    let mut buffer = Vec::new();
+    to_binary(&content, &mut buffer, "").unwrap();
+
+    let mut anvil = Anvil::new(&test.join("r.0.0.mca"));
+    anvil
+        .write(&Chunk {
+            location: (0, 0),
+            uncompressed: buffer.clone(),
+            external: false,
+            timestamp: 0,
+        })
+        .unwrap();
+    anvil.save().unwrap();
+
+    let path = test.join("r.0.0.mca");
     remap_mca(&path, &|_| None).unwrap();
 
+    std::fs::write(
+        &test.join("2d318504-1a7b-39dc-8c18-44df798a5c06.json"),
+        "2d318504-1a7b-39dc-8c18-44df798a5c06",
+    )
+    .unwrap();
+    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    encoder.write_all(&buffer).unwrap();
+    let buffer = encoder.finish().unwrap();
+
+    std::fs::write(
+        &test.join("2d318504-1a7b-39dc-8c18-44df798a5c06.dat"),
+        &buffer,
+    )
+    .unwrap();
+
     remap_file(
-        &PathBuf::from("test"),
+        &test,
         &PathBuf::from("2d318504-1a7b-39dc-8c18-44df798a5c06.json"),
         &|uuid| {
             if uuid == Uuid::from_str("2d318504-1a7b-39dc-8c18-44df798a5c06").unwrap() {
@@ -143,7 +188,7 @@ fn test() {
     .unwrap();
 
     remap_file(
-        &PathBuf::from("test"),
+        &test,
         &PathBuf::from("2d318504-1a7b-39dc-8c18-44df798a5c06.dat"),
         &|uuid| {
             if uuid == Uuid::from_str("2d318504-1a7b-39dc-8c18-44df798a5c06").unwrap() {
@@ -154,4 +199,5 @@ fn test() {
         },
     )
     .unwrap();
+    std::fs::remove_dir_all(&test).unwrap();
 }

@@ -146,21 +146,33 @@ fn main() {
 }
 
 #[cfg(test)]
+fn setup_test_logger() {
+    use std::sync::Once;
+
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        let logger =
+            env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+                .build();
+        LogWrapper::new((*MULTI).clone(), logger)
+            .try_init()
+            .unwrap();
+    });
+}
+
+#[cfg(test)]
 #[test]
 fn test() {
-    let logger =
-        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).build();
-    LogWrapper::new((*MULTI).clone(), logger)
-        .try_init()
-        .unwrap();
+    setup_test_logger();
 
     // Download a world on the internet for testing, if you don't have an own testing world
     // Otherwise, use your own world for testing, which is more reliable
     let path = PathBuf::from("test");
     if !path.exists() {
         std::fs::create_dir(&path).unwrap();
-        let testing_world_url = "https://www.minecraftmaps.com/puzzle-maps/cubes/download-map";
-        let testing_world_zip = "cubes.zip";
+        let testing_world_url =
+            "https://mediafilez.forgecdn.net/files/5095/584/LuckySkyWars%201.20.x.zip";
+        let testing_world_zip = "test_world.zip";
         reqwest::blocking::Client::new()
             .get(testing_world_url)
             .send()
@@ -184,12 +196,12 @@ fn test() {
         }
         std::fs::remove_file(testing_world_zip).unwrap();
     }
-    let player_list = "NotLaama\nCaveNightingale\n";
+    let player_list = "NotLaama\nNoxGame1230\n";
     std::fs::write(path.join("playerlist.txt"), player_list).unwrap();
     // Map to online
     start(Cli {
         path: path.clone(),
-        mapping_kind: MappingKind::ListToOnline,
+        mapping_kind: MappingKind::ListToOffline,
         mapping_file: PathBuf::from("test/playerlist.txt"),
         threads: 4,
         yes: true,
@@ -198,7 +210,7 @@ fn test() {
     // Map back to offline
     start(Cli {
         path,
-        mapping_kind: MappingKind::ListToOffline,
+        mapping_kind: MappingKind::ListToOnline,
         mapping_file: PathBuf::from("test/playerlist.txt"),
         threads: 4,
         yes: true,

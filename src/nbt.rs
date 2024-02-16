@@ -242,6 +242,10 @@ fn test_visit_nbt() {
     use std::collections::HashMap;
     use valence_nbt::{binary::to_binary, from_binary, snbt::from_snbt_str, Compound, Value};
 
+    use crate::setup_test_logger;
+
+    setup_test_logger();
+
     // Positive test
     // Nbt parsing test
     const FROM: Uuid = Uuid::from_u128(0x1234567890abcdef1234567890abcdef);

@@ -1,4 +1,4 @@
-name: Rust
+name: test
 
 on:
   push:
@@ -16,44 +16,31 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v3
-    - name: Set up Rust
-      uses: actions-rs/toolchain@v1
+    - uses: actions-rust-lang/setup-rust-toolchain@v1
       with:
         toolchain: nightly
-        override: true
-        components: rustfmt, clippy
+        components: rustfmt, clippy, llvm-tools-preview
+    - run: cargo install grcov cargo-audit
     - name: Run tests
-      uses: actions-rs/cargo@v1
-      with:
-        command: test
-        args: --no-fail-fast -- --nocapture
+      run: cargo test --no-fail-fast -- --nocapture
       env:
-        CARGO_INCREMENTAL: '0'
-        RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
-        RUSTDOCFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
+        RUSTFLAGS: '-Cinstrument-coverage'
+        RUST_BACKTRACE: full
     - name: Run grcov
-      id: coverage
-      uses: actions-rs/grcov@v0.1
+      run: grcov . --binary-path target/debug/deps/ -s . -t lcov --ignore-not-existing --ignore '../**' --ignore '/*' -o ./lcov.info
     - name: Coveralls upload
       uses: coverallsapp/github-action@master
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
-        path-to-lcov: ${{ steps.coverage.outputs.report }}
+        path-to-lcov: ./lcov.info
     - name: Run clippy
-      uses: actions-rs/cargo@v1
-      with:
-        command: clippy
-        args: --verbose
+      run: cargo clippy -- -D warnings
     - name: Run formatting
-      uses: actions-rs/cargo@v1
-      with:
-        command: fmt
-        args: --check
+      run: cargo fmt --all -- --check
+    - name: Run audit
+      run: cargo audit
     - name: Build release
-      uses: actions-rs/cargo@v1
-      with:
-        command: build
-        args: --release
+      run: cargo build --release
     - name: Upload artifact
       uses: actions/upload-artifact@v2
       with:
@@ -83,7 +70,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v2
         with:
-          name: uuid-remapper-x86_64-windows.exe
+          name: uuid-remapper-x86_64-windows
           path: target/release/uuid-remapper.exe
 
   macos:

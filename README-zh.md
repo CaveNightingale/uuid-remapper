@@ -1,5 +1,6 @@
 # UUID Remapper
-[![Coverage Status](https://coveralls.io/repos/github/CaveNightingale/uuid-remapper/badge.svg?branch=master)](https://coveralls.io/github/CaveNightingale/uuid-remapper?branch=master)
+
+测试徽章：[![Test](https://github.com/CaveNightingale/uuid-remapper/actions/workflows/rust.yml/badge.svg)](https://github.com/CaveNightingale/uuid-remapper/actions/workflows/rust.yml)[![Coverage](https://coveralls.io/repos/github/CaveNightingale/uuid-remapper/badge.svg?branch=master)](https://coveralls.io/github/CaveNightingale/uuid-remapper?branch=master)
 
 这是一个简单的工具，用于重映射 Minecraft 世界中的 UUID。
 

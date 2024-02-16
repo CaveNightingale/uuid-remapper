@@ -263,6 +263,10 @@ impl Anvil {
 fn test() {
     use rand::Rng;
 
+    use crate::setup_test_logger;
+
+    setup_test_logger();
+
     let rand_chunk = |rng: &mut rand::rngs::ThreadRng, loc: (i32, i32), size: usize| -> Chunk {
         let mut uncompressed = vec![0; size];
         rng.fill(&mut uncompressed[..]);

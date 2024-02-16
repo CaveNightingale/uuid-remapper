@@ -191,6 +191,10 @@ pub fn get_mapping(kind: MappingKind, path: &Path) -> anyhow::Result<HashMap<Uui
 #[cfg(test)]
 #[test]
 fn test() {
+    use crate::setup_test_logger;
+
+    setup_test_logger();
+
     let csv_file = "from,to\n\
     00000000-0000-0000-0000-000000000000,00000000-0000-0000-0000-000000000001\n\
     00000000-0000-0000-0000-000000000002,00000000-0000-0000-0000-000000000003";

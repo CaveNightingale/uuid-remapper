@@ -1,5 +1,5 @@
 # UUID Remapper
-[![Coverage Status](https://coveralls.io/repos/github/CaveNightingale/uuid-remapper/badge.svg?branch=master)](https://coveralls.io/github/CaveNightingale/uuid-remapper?branch=master)
+Test badge: [![Test](https://github.com/CaveNightingale/uuid-remapper/actions/workflows/rust.yml/badge.svg)](https://github.com/CaveNightingale/uuid-remapper/actions/workflows/rust.yml)[![Coverage](https://coveralls.io/repos/github/CaveNightingale/uuid-remapper/badge.svg?branch=master)](https://coveralls.io/github/CaveNightingale/uuid-remapper?branch=master)
 
 This is a simple tool to remap UUIDs in minecraft worlds. 
 

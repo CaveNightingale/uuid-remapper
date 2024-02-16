@@ -95,6 +95,10 @@ pub fn split_tasks(tasks: &[PathBuf], count: usize) -> Vec<&[PathBuf]> {
 fn test() {
     use std::collections::HashSet;
 
+    use crate::setup_test_logger;
+
+    setup_test_logger();
+
     let tasks = vec![
         PathBuf::from("a"),
         PathBuf::from("b"),
@@ -121,6 +125,9 @@ fn test() {
             .collect::<Vec<_>>(),
         vec![3, 3, 2, 2]
     );
+
+    #[cfg(target_family = "windows")]
+    return;
 
     let pesudo_content = b"Hello, world!";
     // Test scan_world

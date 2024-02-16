@@ -116,6 +116,11 @@ pub fn visit_text(text: &mut [u8], cb: &impl Fn(Uuid) -> Option<Uuid>) {
 #[test]
 fn test_visit_text() {
     use std::str::FromStr;
+
+    use crate::setup_test_logger;
+
+    setup_test_logger();
+
     let mut text = b"12345678-1234-5678-1234-567812345678".to_vec();
     visit_text(&mut text, &mut |_| {
         Some(Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap())
