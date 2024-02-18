@@ -138,10 +138,11 @@ impl<'a> Iterator for AnvilIter<'a> {
                 }
             }
             _ => {
+                self.index += 1;
                 return Some(Err(anyhow::anyhow!(
                     "Unknown compression type in chunk {:?}",
                     location
-                )))
+                )));
             }
         }
         self.index += 1;
