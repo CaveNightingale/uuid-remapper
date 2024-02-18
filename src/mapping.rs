@@ -347,11 +347,7 @@ fn test() {
     let offline_to_specific_path = std::env::temp_dir().join("test.offline_to_specific.csv");
     std::fs::write(&offline_to_specific_path, offline_to_specific_file).unwrap();
     assert_eq!(
-        get_mapping(
-            MappingKind::OfflineToSpecificCsv,
-            &offline_to_specific_path
-        )
-        .unwrap(),
+        get_mapping(MappingKind::OfflineToSpecificCsv, &offline_to_specific_path).unwrap(),
         vec![
             (
                 offline_uuid("CaveNightingale"),

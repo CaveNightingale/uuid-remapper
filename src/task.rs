@@ -1,6 +1,7 @@
 use std::{
     cell::Cell,
     collections::HashMap,
+    panic::catch_unwind,
     path::{Path, PathBuf},
     thread::JoinHandle,
 };
@@ -17,23 +18,32 @@ pub fn run_tasks(
     mapping: &'static HashMap<Uuid, Uuid>,
 ) -> JoinHandle<usize> {
     std::thread::spawn(move || {
-        pg.set_length(tasks.len() as u64);
-        let stat = Cell::new(0);
-        for task in tasks {
-            pg.set_message(task.display().to_string());
-            let cb = |uuid| {
-                let ret = mapping.get(&uuid).copied();
-                if ret.is_some() {
-                    stat.set(stat.get() + 1);
-                }
-                ret
-            };
-            if let Err(err) = remap_file(&world, task, &cb) {
-                log::error!("Failed to remap file {}: {:#?}", task.display(), err);
-            };
-            pg.inc(1);
+        let result = catch_unwind(move || {
+            pg.set_length(tasks.len() as u64);
+            let stat = Cell::new(0);
+            for task in tasks {
+                pg.set_message(task.display().to_string());
+                let cb = |uuid| {
+                    let ret = mapping.get(&uuid).copied();
+                    if ret.is_some() {
+                        stat.set(stat.get() + 1);
+                    }
+                    ret
+                };
+                if let Err(err) = remap_file(&world, task, &cb) {
+                    log::error!("Failed to remap file {}: {:#?}", task.display(), err);
+                };
+                pg.inc(1);
+            }
+            stat.get()
+        });
+        match result {
+            Err(err) => {
+                log::error!("Thread panicked: {:#?}", err);
+                panic!("Thread panicked");
+            }
+            Ok(ret) => ret,
         }
-        stat.get()
     })
 }
 
