@@ -27,6 +27,8 @@ pub enum MappingKind {
     /// Can be used to rename players in offline mode.
     /// The first line does not matter
     OfflineRenameCsv,
+    /// Convert offline names to specific uuid
+    OfflineToSpecificCsv,
 }
 
 fn load_csv(path: &Path) -> anyhow::Result<HashMap<Uuid, Uuid>> {
@@ -149,6 +151,24 @@ pub fn load_offline_rename(path: &Path) -> anyhow::Result<HashMap<Uuid, Uuid>> {
     Ok(map)
 }
 
+pub fn load_offline_to_specific(path: &Path) -> anyhow::Result<HashMap<Uuid, Uuid>> {
+    let mut map = HashMap::new();
+    for line in std::fs::read_to_string(path)?.lines().skip(1) {
+        let mut iter = line.split(',');
+        let Some(x) = iter.next().map(offline_uuid) else {
+            continue;
+        };
+        let Some(y) = iter.next().and_then(|y| Uuid::from_str(y).ok()) else {
+            continue;
+        };
+        if iter.next().is_some() {
+            continue;
+        };
+        map.insert(x, y);
+    }
+    Ok(map)
+}
+
 pub fn get_mapping(kind: MappingKind, path: &Path) -> anyhow::Result<HashMap<Uuid, Uuid>> {
     match kind {
         MappingKind::Csv => load_csv(path),
@@ -185,6 +205,7 @@ pub fn get_mapping(kind: MappingKind, path: &Path) -> anyhow::Result<HashMap<Uui
             ))
         }
         MappingKind::OfflineRenameCsv => load_offline_rename(path),
+        MappingKind::OfflineToSpecificCsv => load_offline_to_specific(path),
     }
 }
 
@@ -319,4 +340,30 @@ fn test() {
         composed.get(&Uuid::from_str("61699b2e-d327-4a01-9f1e-0ea8c3f06bc6").unwrap()),
         Some(&offline_uuid("Dinnerbone"))
     );
+
+    let offline_to_specific_file = "from,to\n\
+    CaveNightingale,2d318504-1a7b-39dc-8c18-44df798a5c06\n\
+    Notch,069a79f4-44e9-4726-a5be-fca90e38aaf5";
+    let offline_to_specific_path = std::env::temp_dir().join("test.offline_to_specific.csv");
+    std::fs::write(&offline_to_specific_path, offline_to_specific_file).unwrap();
+    assert_eq!(
+        get_mapping(
+            MappingKind::OfflineToSpecificCsv,
+            &offline_to_specific_path
+        )
+        .unwrap(),
+        vec![
+            (
+                offline_uuid("CaveNightingale"),
+                Uuid::from_str("2d318504-1a7b-39dc-8c18-44df798a5c06").unwrap()
+            ),
+            (
+                offline_uuid("Notch"),
+                Uuid::from_str("069a79f4-44e9-4726-a5be-fca90e38aaf5").unwrap()
+            ),
+        ]
+        .into_iter()
+        .collect()
+    );
+    std::fs::remove_file(offline_to_specific_path).unwrap();
 }

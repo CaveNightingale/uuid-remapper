@@ -19,14 +19,6 @@ const TAG_COMPOUND: u8 = 10;
 const TAG_INT_ARRAY: u8 = 11;
 const TAG_LONG_ARRAY: u8 = 12;
 
-fn is_recursive(kind: u8) -> bool {
-    kind == TAG_LIST || kind == TAG_COMPOUND
-}
-
-fn worth_visiting(kind: u8) -> bool {
-    is_recursive(kind) || kind == TAG_INT_ARRAY
-}
-
 fn tag_size(kind: u8) -> Option<usize> {
     match kind {
         TAG_END => Some(0),
@@ -49,175 +41,139 @@ fn list_element_size(kind: u8) -> Option<usize> {
     }
 }
 
-pub(crate) fn visit_nbt(nbt: &mut [u8], cb: &impl Fn(Uuid) -> Option<Uuid>) -> anyhow::Result<()> {
-    let mut cursor = 0;
-    let len = nbt.len();
+type UuidBitLoc<'a> = Option<&'a mut [u8]>;
 
-    macro_rules! check_len {
-        ($len:expr) => {
-            if (len - cursor) < $len {
-                anyhow::bail!("Malformed NBT: Unexpected EOF");
-            }
-        };
+enum VisitFrame<'a> {
+    Compound(HashMap<&'a [u8], (UuidBitLoc<'a>, UuidBitLoc<'a>)>),
+    List { kind: u8, index: usize, len: usize },
+}
+
+struct NbtReader<'a, 'b, F: Fn(Uuid) -> Option<Uuid>> {
+    nbt: &'a mut [u8],
+    callback: &'b F,
+}
+
+impl<'a, 'b, F: Fn(Uuid) -> Option<Uuid>> NbtReader<'a, 'b, F> {
+    fn new(nbt: &'a mut [u8], callback: &'b F) -> Self {
+        Self { nbt, callback }
     }
 
-    macro_rules! read {
-        ($ty:ty) => {{
-            let len = std::mem::size_of::<$ty>();
-            check_len!(len);
-            let ret = <$ty>::from_be_bytes(nbt[cursor..cursor + len].try_into().unwrap());
-            cursor += len;
-            ret
-        }};
+    fn take(&mut self, len: usize) -> anyhow::Result<&'a mut [u8]> {
+        if len > self.nbt.len() {
+            anyhow::bail!("Malformed NBT: Unexpected EOF");
+        }
+        let (head, tail) = std::mem::take(&mut self.nbt).split_at_mut(len);
+        self.nbt = tail;
+        Ok(head)
     }
 
-    macro_rules! read_str {
-        () => {{
-            let len = read!(u16) as usize;
-            check_len!(len);
-            let ret = &mut nbt[cursor..cursor + len];
-            cursor += len;
-            ret
-        }};
+    fn take_str(&mut self) -> anyhow::Result<&'a mut [u8]> {
+        let len = u16::from_be_bytes(self.take(2)?.try_into().unwrap()) as usize;
+        self.take(len)
     }
 
-    macro_rules! visit_str {
-        () => {{
-            visit_text(read_str!(), cb);
-        }};
+    fn visit_str(&mut self) -> anyhow::Result<()> {
+        visit_text(self.take_str()?, self.callback);
+        Ok(())
     }
 
-    macro_rules! strip_postfix {
-        ($str:expr, $pre:expr) => {{
-            let len = $str.len();
-            if len >= $pre.len() && &$str[len - $pre.len()..] == $pre {
-                Some(&$str[..len - $pre.len()])
+    fn visit_uuid(&self, most: &mut [u8], least: &mut [u8]) -> anyhow::Result<()> {
+        let omost = u64::from_be_bytes(most.try_into().unwrap());
+        let oleast = u64::from_be_bytes(least.try_into().unwrap());
+        let uuid = Uuid::from_u64_pair(omost, oleast);
+        if let Some(new_uuid) = (self.callback)(uuid) {
+            let (nmost, nleast) = new_uuid.as_u64_pair();
+            most.copy_from_slice(&nmost.to_be_bytes());
+            least.copy_from_slice(&nleast.to_be_bytes());
+        }
+        Ok(())
+    }
+
+    fn visit_value(&mut self, stack: &mut Vec<VisitFrame<'a>>, kind: u8) -> anyhow::Result<()> {
+        if kind == TAG_INT_ARRAY {
+            let count = u32::from_be_bytes(self.take(4)?.try_into().unwrap()) as usize;
+            if count == 4 {
+                let most = self.take(8)?;
+                let least = self.take(8)?;
+                self.visit_uuid(most, least)?;
             } else {
-                None
+                self.take(count * 4)?;
             }
-        }};
-    }
-
-    enum VisitFrame {
-        // Break the borrow checker since we need to borrow different parts of nbt at the same time
-        Compound(HashMap<&'static [u8], (usize, usize)>),
-        List { kind: u8, index: usize, len: usize },
-    }
-
-    let mut stack = Vec::with_capacity(32);
-
-    macro_rules! visit_compound {
-        () => {{
-            stack.push(VisitFrame::Compound(HashMap::new()))
-        }};
-    }
-
-    macro_rules! visit_list {
-        () => {
-            let ele_kind = read!(u8);
+        } else if let Some(size) = tag_size(kind) {
+            self.take(size)?;
+        } else if let Some(element_size) = list_element_size(kind) {
+            let count = u32::from_be_bytes(self.take(4)?.try_into().unwrap()) as usize;
+            self.take(count * element_size)?;
+        } else if kind == TAG_COMPOUND {
+            stack.push(VisitFrame::Compound(HashMap::new()));
+        } else if kind == TAG_LIST {
+            let ele_kind = self.take(1)?[0];
+            let count = u32::from_be_bytes(self.take(4)?.try_into().unwrap()) as usize;
             if let Some(size) = tag_size(ele_kind) {
-                cursor += size * read!(u32) as usize;
+                self.take(size * count)?;
             } else {
                 stack.push(VisitFrame::List {
                     kind: ele_kind,
                     index: 0,
-                    len: read!(u32) as usize,
+                    len: count,
                 });
             }
-        };
-    }
-
-    macro_rules! visit_int_arr {
-        () => {{
-            let arrlen = read!(u32) as usize;
-            if (arrlen == 4) {
-                let uuid = Uuid::from_slice(&nbt[cursor..cursor + 16]).unwrap();
-                if let Some(new_uuid) = cb(uuid) {
-                    nbt[cursor..cursor + 16].copy_from_slice(new_uuid.as_bytes());
-                }
-            }
-            cursor += arrlen * 4;
-        }};
-    }
-
-    macro_rules! visit_value {
-        ($kind:expr) => {{
-            if $kind == TAG_INT_ARRAY {
-                visit_int_arr!();
-            } else if let Some(size) = tag_size($kind) {
-                cursor += size;
-            } else if let Some(element_size) = list_element_size($kind) {
-                let count = read!(u32) as usize;
-                cursor += count * element_size;
-            } else if $kind == TAG_COMPOUND {
-                visit_compound!();
-            } else if $kind == TAG_LIST {
-                visit_list!();
-            } else if $kind == TAG_STRING {
-                visit_str!();
-            } else {
-                anyhow::bail!("Malformed NBT: Unknown tag type {}", $kind);
-            }
-        }};
-    }
-
-    let root_kind = read!(u8);
-    read_str!();
-    match root_kind {
-        TAG_COMPOUND => visit_compound!(),
-        TAG_LIST => {
-            let kind = read!(u8);
-            if worth_visiting(kind) {
-                stack.push(VisitFrame::List {
-                    kind,
-                    index: 0,
-                    len: read!(u32) as usize,
-                });
-            }
+        } else if kind == TAG_STRING {
+            self.visit_str()?;
+        } else {
+            anyhow::bail!("Malformed NBT: Unknown tag type {}", kind);
         }
-        TAG_INT_ARRAY => visit_int_arr!(),
-        _ => {}
+        Ok(())
     }
-    if stack.is_empty() {
-        return Ok(());
-    }
-    while let Some(top) = stack.last_mut() {
+
+    fn step(&mut self, stack: &mut Vec<VisitFrame<'a>>) -> anyhow::Result<bool> {
+        macro_rules! strip_postfix {
+            ($str:expr, $pre:expr) => {{
+                let len = $str.len();
+                if len >= $pre.len() && &$str[len - $pre.len()..] == $pre {
+                    Some(&$str[..len - $pre.len()])
+                } else {
+                    None
+                }
+            }};
+        }
+
+        let Some(top) = stack.last_mut() else {
+            return Ok(false);
+        };
         match top {
             VisitFrame::Compound(map) => {
-                let kind = read!(u8);
+                let kind = self.take(1)?[0];
                 if kind == TAG_END {
-                    for (most_p, least_p) in map.values().copied() {
-                        let most = nbt[most_p..most_p + 8].try_into().unwrap();
-                        let least = nbt[least_p..least_p + 8].try_into().unwrap();
-                        let uuid = Uuid::from_u64_pair(
-                            u64::from_be_bytes(most),
-                            u64::from_be_bytes(least),
-                        );
-                        if let Some(new_uuid) = cb(uuid) {
-                            let (most, least) = new_uuid.as_u64_pair();
-                            nbt[most_p..most_p + 8].copy_from_slice(&most.to_be_bytes());
-                            nbt[least_p..least_p + 8].copy_from_slice(&least.to_be_bytes());
+                    let Some(VisitFrame::Compound(map)) = stack.pop() else {
+                        unreachable!();
+                    };
+                    for uuid in map.into_values() {
+                        if let (Some(most_p), Some(least_p)) = uuid {
+                            self.visit_uuid(most_p, least_p)?;
                         }
                     }
-                    stack.pop();
                 } else {
-                    let name = read_str!();
+                    let name = self.take_str()?;
                     if kind == TAG_LONG {
                         if let Some(field) = strip_postfix!(name, b"UUIDMost") {
                             if let Some((pos, _)) = map.get_mut(field) {
-                                *pos = cursor;
+                                *pos = Some(self.take(8)?);
                             } else {
-                                map.insert(unsafe { std::mem::transmute(field) }, (cursor, 0));
+                                map.insert(field, (Some(self.take(8)?), None));
                             };
                         } else if let Some(field) = strip_postfix!(name, b"UUIDLeast") {
                             if let Some((_, pos)) = map.get_mut(field) {
-                                *pos = cursor;
+                                *pos = Some(self.take(8)?);
                             } else {
-                                map.insert(unsafe { std::mem::transmute(field) }, (0, cursor));
+                                map.insert(field, (None, Some(self.take(8)?)));
                             };
+                        } else {
+                            self.visit_value(stack, kind)?;
                         }
+                    } else {
+                        self.visit_value(stack, kind)?;
                     }
-                    visit_value!(kind);
                 }
             }
             VisitFrame::List { kind, index, len } => {
@@ -225,15 +181,29 @@ pub(crate) fn visit_nbt(nbt: &mut [u8], cb: &impl Fn(Uuid) -> Option<Uuid>) -> a
                     stack.pop();
                 } else {
                     *index += 1;
-                    visit_value!(*kind);
+                    let kind = *kind;
+                    self.visit_value(stack, kind)?;
                 }
             }
         }
+        Ok(true)
     }
-    if cursor != len {
-        anyhow::bail!("Malformed NBT: Unexpected trailing data");
+
+    fn process(&mut self) -> anyhow::Result<()> {
+        let mut stack = Vec::with_capacity(32);
+        let root_kind = self.take(1)?[0];
+        self.take_str()?;
+        self.visit_value(&mut stack, root_kind)?;
+        while self.step(&mut stack)? {}
+        if !self.nbt.is_empty() {
+            anyhow::bail!("Malformed NBT: Unexpected trailing data");
+        }
+        Ok(())
     }
-    Ok(())
+}
+
+pub(crate) fn visit_nbt(nbt: &mut [u8], cb: &impl Fn(Uuid) -> Option<Uuid>) -> anyhow::Result<()> {
+    NbtReader::new(nbt, cb).process()
 }
 
 #[cfg(test)]
