@@ -72,16 +72,20 @@ impl<'a> Iterator for AnvilIter<'a> {
         if start + SECTOR_SIZE * sector_count as usize > self.anvil.content.len() {
             self.index += 1;
             return Some(Err(anyhow::anyhow!(
-                "Invalid sector count in chunk {:?}",
-                location
+                "Invalid sector count in chunk {:?} in file {} at offset {}",
+                location,
+                self.anvil.path.display(),
+                start
             )));
         }
         let chunk_len = u32_at!(start) as usize;
         if start + chunk_len + 4 > self.anvil.content.len() || chunk_len < 1 {
             self.index += 1;
             return Some(Err(anyhow::anyhow!(
-                "Invalid chunk length in chunk {:?}",
-                location
+                "Invalid chunk length in chunk {:?} in file {} at offset {}",
+                location,
+                self.anvil.path.display(),
+                start
             )));
         }
 
@@ -95,8 +99,9 @@ impl<'a> Iterator for AnvilIter<'a> {
             let Ok(external_path) = self.anvil.external_location(location) else {
                 self.index += 1;
                 return Some(Err(anyhow::anyhow!(
-                    "Invalid global location for external chunk {:?}",
-                    location
+                    "Invalid global location for external chunk {:?} in file {}",
+                    location,
+                    self.anvil.path.display()
                 )));
             };
             external_data = match std::fs::read(external_path) {
@@ -140,8 +145,10 @@ impl<'a> Iterator for AnvilIter<'a> {
             _ => {
                 self.index += 1;
                 return Some(Err(anyhow::anyhow!(
-                    "Unknown compression type in chunk {:?}",
-                    location
+                    "Unknown compression type in chunk {:?} in file {} at offset {}",
+                    location,
+                    self.anvil.path.display(),
+                    start
                 )));
             }
         }
