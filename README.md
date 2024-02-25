@@ -33,12 +33,15 @@ The main idea is `find` and `replace`.
 
 ```
 for file in world:
-  if file is *.txt, *.json, *.json5:
+  if file is *.txt, *.json, *.json5, *.yml, *.yaml, *.toml:
     for each uuid: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx, xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx in file and filename:
       uuid = f(uuid)
   else if file is *.dat, *.mca, *.mcc:
     for each uuid: {zzzUUIDMost: xxxL, zzzUUIDLeast: xxxL}, [I; xx, xx, xx, xx] in uncompressed file:
       uuid = f(uuid)
-    for each uuid: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx, xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx in filename:
-      uuid = f(uuid)
+    for each string field and filename:
+      process as text file
 ```
+
+## Update
+**As `uuid-remapper` has finished its job on my server, processing 70 GiB of world files with no significant issues, I consider it stable and mark it as `1.0.0`. Update will only be made when someone requests a feature or reports a bug.**

@@ -34,6 +34,9 @@ uuid-remapper --help
 
 ## 算法
 * 对于文本文件（后缀为txt、json、json5），匹配`xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`和`xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`的 UUID。
-* 对于 NBT 文件及其变种（后缀为dat、mca、mcc），匹配 NBT 中`{zzzUUIDMost: xxxL, zzzUUIDLeast: xxxL}`和`[I; xx, xx, xx, xx]`的 UUID，其中`zzz`是任意字符串，上述格式为 SNBT 格式，实际匹配时使用 NBT （也就是二进制）格式。
+* 对于 NBT 文件及其变种（后缀为dat、mca、mcc），匹配 NBT 中`{zzzUUIDMost: xxxL, zzzUUIDLeast: xxxL}`和`[I; xx, xx, xx, xx]`的 UUID，其中`zzz`是任意字符串，上述格式为 SNBT 格式，实际匹配时使用 NBT （也就是二进制）格式，字符串类型的字段，匹配模式同文本文件。
 * 上述两种类型，文件名中的 UUID 也会被匹配，规则与文本文件相同。
 * 并不能保证所有 UUID 都能被找到和替换，例如原始 JSON 文本中的 UUID 选择器中的 UUID，以及某些模组使用的 sqlite 文件中的 UUID，都不会被找到和替换。
+
+## 更新
+**由于 `uuid-remapper` 在我的服务器上完成了工作，处理了 70 GiB 的世界文件，没有出现明显问题，我认为它是稳定的，并将其标记为 `1.0.0`。只有在有人请求功能或报告错误时，才会进行更新。**
